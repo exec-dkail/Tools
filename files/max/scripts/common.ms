@@ -50,59 +50,135 @@ function ResetXForms flip =
 		)
 	)			
 )
-function SelectNonSmoothingFaces obj =
+/*
+function SelectFacesWithSameSmoothing obj =
 (
-	nonSmoothingFaces = #()
-	for inc = 1 to (polyop.getNumFaces obj) do
+	local smoothGrp = 0 
+	local faceList = #()
+	if  (polyop.getFaceSelection obj).numberSet == 1 do
 	(
-		if (polyop.getFaceSmoothGroup obj inc) == 0 do
-		(
-			AppendIfUnique nonSmoothingFaces inc
-		)
+		smoothGrp = polyop.getFaceSmoothGroup obj (polyop.getFaceSelection obj as array)[1]
 	)
-	polyop.setFaceSelection obj #None	
-	polyop.setFaceSelection obj (nonSmoothingFaces as bitarray)		
-	if selection.count == 1 do
-	(		
-		subObjectLevel = 4
+	if smoothGrp != 0 do
+	(
+		for i = 1 to (polyop.getNumFaces obj) do 
+		(
+			if polyop.getFaceSmoothGroup obj i == smoothGrp do 
+			(
+				AppendIfUnique faceList i
+			)
+		)
+		polyop.setFaceSelection obj faceList
+		update obj
 	)
 )
-fn GetMultipleSmoothing obj = 
+*/
+function SelectSpecialAdjacentFaces obj nVert sGNum = 
 (
-	smoothingGroupIndex = #(0,1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768,65536,131072,262144,524288,1048576,2097152,4194304,8388608,16777216,33554432,67108864,134217728,268435456,536870912,1073741824,-2147483648)
-	nonSmoothingFaces = #()
-	for inc = 1 to (polyop.getNumFaces obj) do
+	faceList = #()
+	for v in nVert do
 	(
-		if (findItem smoothingGroupIndex (polyop.getFaceSmoothGroup obj inc)) == 0 do
+		tempFace = (polyop.getFacesUsingVert obj v) as array
+		for j = 1 to tempFace.count do
 		(
-			AppendIfUnique nonSmoothingFaces inc
+			if sGNum == (polyop.getFaceSmoothGroup obj tempFace[j]) do
+			(
+				appendIfUnique facelist tempFace[j]
+			)
 		)
 	)
-	polyop.setFaceSelection obj #None	
-	polyop.setFaceSelection obj (nonSmoothingFaces as bitarray)			
-	if selection.count == 1 do
-	(		
-		subObjectLevel = 4
+	return faceList
+)
+function IterateToNextVertex obj faceList =
+(
+	unionEdge = #{}
+	intersectingEdges = #{}
+	
+	for f in faceList do Join unionEdge (polyop.getEdgesUsingFace obj f)
+	for i = 1 to (faceList as array).count do
+	(
+		for j = 1 to (faceList as array).count do
+		(
+			if ((polyop.getEdgesUsingFace obj (faceList as array)[i]) * (polyop.getEdgesUsingFace obj (faceList as array)[j])).numberSet == 1 do
+			(
+				Join intersectingEdges ((polyop.getEdgesUsingFace obj (faceList as array)[i]) * (polyop.getEdgesUsingFace obj (faceList as array)[j]))
+			)
+		)
 	)
+	nxtEdge = (unionEdge - intersectingEdges)
+	nxtVerts = polyop.getVertsUsingEdge $ nxtEdge
+	return nxtVerts
+)
+function SelectNonSmoothingFaces =
+(
+	errorObj = #()
+	for obj in objects where classOf obj == Editable_Poly do
+	(
+		nonSmoothingFaces = #()
+		for inc = 1 to (polyop.getNumFaces obj) do
+		(
+			if (polyop.getFaceSmoothGroup obj inc) == 0 do
+			(
+				AppendIfUnique nonSmoothingFaces inc
+				AppendIfUnique errorObj obj
+			)
+		)
+		if not (nonSmoothingFaces as bitArray).isEmpty do
+		(
+			polyop.setFaceSelection obj #None	
+			polyop.setFaceSelection obj (nonSmoothingFaces as bitarray)		
+		)
+	)
+	return errorObj	
+)
+fn GetMultipleSmoothing = 
+(
+	smoothingGroupIDs = #()
+	errorObj = #()
+	for i = 0 to 32 do
+	(
+		AppendIfUnique smoothingGroupIDs (2^i)
+	)
+	for obj in objects where classOf obj == Editable_Poly do
+	(
+		nonSmoothingFaces = #()
+		for inc = 1 to (polyop.getNumFaces obj) do
+		(
+			if (findItem smoothingGroupIDs (polyop.getFaceSmoothGroup obj inc)) == 0 and (polyop.getFaceSmoothGroup obj inc) != 0 do
+			(
+				AppendIfUnique nonSmoothingFaces inc
+				AppendIfUnique errorObj obj				
+			)
+			if not (nonSmoothingFaces as bitArray).isEmpty do
+			(
+				polyop.setFaceSelection obj #None	
+				polyop.setFaceSelection obj (nonSmoothingFaces as bitarray)
+			)
+		)
+	)
+	return errorObj
 )
 function GetNonPolyFaces =
 (
-	if selection.count > 0 do
+	errorObj = #()
+	for obj in objects where classOf obj == Editable_Poly do
 	(
 		getNGon = #()
-		for obj in selection where superClassOf obj == GeometryClass and classOf obj == Editable_Poly do
+		for faces = 1 to (polyop.getNumFaces obj) do
 		(
-			for faces = 1 to (polyop.getNumFaces obj) do
+			if (polyop.getFaceDeg obj faces) > 4 do
 			(
-				if (polyop.getFaceDeg obj faces) > 4 do
-				(
-					AppendIfUnique getNGon faces
-				)
-			)	
+				AppendIfUnique getNGon faces
+				AppendIfUnique errorObj obj
+			)
+		)	
+		if not (getNGon as bitArray).isEmpty do
+		(
 			polyop.setFaceSelection obj #None
 			polyop.setFaceSelection obj getNGon
 		)
-	)				
+	)
+	return errorObj
 )
 function SetWireColor = 
 (
