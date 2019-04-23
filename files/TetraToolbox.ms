@@ -46,7 +46,7 @@ else
 	DHR_toolVersion = 0.0
 )
 DHR_maxVersion = maxVersion()
-DHR_tetraToolBoxMaxWindowSize = [174,1100]
+DHR_tetraToolBoxMaxWindowSize = [174,1500]
 fn LoadScripts =
 (
 	Directory = dotNetClass "System.IO.Directory"
@@ -60,7 +60,7 @@ fn LoadScripts =
 )
 LoadScripts()
 try(destroyDialog DHR_TetraToolBox)catch()
-rollout DHR_TetraToolBox ("TeTRA Toolbox v"+DHR_toolVersion as string) width:162 height:936
+rollout DHR_TetraToolBox ("TeTRA Toolbox v"+DHR_toolVersion as string)
 (
 	subRollout 'DHR_TetraToolBox_SubRollout' "" pos:[-1,-1] width:DHR_tetraToolBoxMaxWindowSize.x height:DHR_tetraToolBoxMaxWindowSize.y align:#left
 	fn DotnetButtonLayout ctrl alignment:unsupplied =
@@ -91,10 +91,11 @@ rollout DHR_TetraToolBox ("TeTRA Toolbox v"+DHR_toolVersion as string) width:162
 		dotNetControl 'btnRemoveDeadIsoVerts' "Button" pos:[4,91] width:152 height:26 align:#left
 		dotNetControl 'btnCheckNGon' "Button" pos:[4,119] width:152 height:26 align:#left
 		dotNetControl 'btnSelectNonSmoothing' "Button" pos:[4,147] width:152 height:26 align:#left
-		dotNetControl 'btnSelectMultipleSmoothing' "Button" pos:[4,175] width:152 height:26 align:#left
-		dotNetControl 'btnRemoveZeroFaceObjects' "Button" pos:[4,203] width:152 height:26 align:#left
-		dotNetControl 'btnApplyRandomWirecolor' "Button" pos:[4,231] width:152 height:26 align:#left	
-		dotNetControl 'btnRemoveCollisionMaterials' "Button" pos:[4,259] width:152 height:26 align:#left	
+		dotNetControl 'btnSelectSameSmoothing' "Button" pos:[4,175] width:152 height:26 align:#left
+		dotNetControl 'btnSelectMultipleSmoothing' "Button" pos:[4,203] width:152 height:26 align:#left
+		dotNetControl 'btnRemoveZeroFaceObjects' "Button" pos:[4,231] width:152 height:26 align:#left
+		dotNetControl 'btnApplyRandomWirecolor' "Button" pos:[4,259] width:152 height:26 align:#left	
+		dotNetControl 'btnRemoveCollisionMaterials' "Button" pos:[4,287] width:152 height:26 align:#left	
 		
 		--events
 		on DHR_TetraToolBox_Mesh open do
@@ -105,6 +106,7 @@ rollout DHR_TetraToolBox ("TeTRA Toolbox v"+DHR_toolVersion as string) width:162
 			btnResetXFormMirrored.Text = "Reset XForm Mirrored"
 			btnRemoveDeadIsoVerts.Text = "Remove Dead/Iso Vertices"
 			btnSelectNonSmoothing.Text = "Select Non Smoothing"
+			btnSelectSameSmoothing.Text = "Select Same Smoothing"
 			btnSelectMultipleSmoothing.Text = "Select Multiple Smoothing"
 			btnCheckNGon.Text = "Check NGon"
 			btnRemoveZeroFaceObjects.Text = "List Objects with Null Faces"
@@ -116,6 +118,7 @@ rollout DHR_TetraToolBox ("TeTRA Toolbox v"+DHR_toolVersion as string) width:162
 			DotnetButtonLayout btnResetXFormMirrored
 			DotnetButtonLayout btnRemoveDeadIsoVerts
 			DotnetButtonLayout btnSelectMultipleSmoothing
+			DotnetButtonLayout btnSelectSameSmoothing
 			DotnetButtonLayout btnSelectNonSmoothing
 			DotnetButtonLayout btnCheckNGon
 			DotnetButtonLayout btnRemoveZeroFaceObjects
@@ -157,21 +160,47 @@ rollout DHR_TetraToolBox ("TeTRA Toolbox v"+DHR_toolVersion as string) width:162
 		)
 		on btnCheckNGon click e do
 		(
-			GetNonPolyFaces()
+			errObj = GetNonPolyFaces()
+			select errObj
 		)
 		on btnSelectMultipleSmoothing click e do
 		(
-			if selection.count > 0 do
+			errObj = GetMultipleSmoothing()
+			select errObj
+		)
+		on btnSelectSameSmoothing click e do
+		(
+			if selection.count == 1 do 
 			(
-				for obj in selection do GetMultipleSmoothing obj
+				obj = $
+				currFace = polyop.getFaceSelection obj as array
+				if currFace.count == 1 do
+				(
+					sGroupNumber = polyop.getFaceSmoothGroup obj currFace[1]
+					nxtVertex = polyop.getVertsUsingFace obj currFace[1]
+					faceList = deepCopy currFace
+					checkList = deepCopy faceList
+					flag = 1
+					while flag != 0 do
+					(
+						nFaces = (SelectSpecialAdjacentFaces obj nxtVertex sGroupNumber)
+						for f in nFaces do AppendIfUnique faceList f
+						if faceList.count == checkList.count do 
+						(
+							flag = 0
+						)
+						checkList = deepCopy faceList
+						nxtVertex = IterateToNextVertex obj faceList
+					)	
+					polyop.setFaceSelection $ (faceList as bitArray)
+					update obj
+				)
 			)
 		)
 		on btnSelectNonSmoothing click e do
 		(
-			if selection.count > 0 do
-			(
-				for obj in selection do SelectNonSmoothingFaces obj
-			)
+			errObj = SelectNonSmoothingFaces()
+			select errObj
 		)
 		on btnRemoveDeadIsoVerts click e do
 		(
@@ -283,8 +312,6 @@ rollout DHR_TetraToolBox ("TeTRA Toolbox v"+DHR_toolVersion as string) width:162
 		label 'lbl11' "%" pos:[128,200] width:16 height:16 align:#left
 		dotNetControl 'btnScaleUVByPercentage' "button" pos:[16,224] width:128 height:24 align:#left
 		
-		local texelRatio = 0	
-		
 		on DHR_TetraToolBox_MaterialUV open do
 		(
 			transformVal.value = 1.0			
@@ -368,6 +395,200 @@ rollout DHR_TetraToolBox ("TeTRA Toolbox v"+DHR_toolVersion as string) width:162
 			)
 			ScaleUVByPercentage scaleValue			
 		)
+	)
+	rollout DHR_TetraToolBox_LOD "LOD" rolledup:true
+	(
+		dotNetControl 'btnExportFix' "Button" pos:[5,4] width:152 height:22
+		dotNetControl 'btnCopyNextLOD' "Button" pos:[5,29] width:152 height:22
+		
+		local tetraLODIndex = #("LOD01","LOD02","LOD03","LOD04","LOD05","LOD06")
+		-- This function set the Complex Collision of animatable helpers for Tetra Engine.
+		fn SetComplexCollisionProperties = 
+		(
+			for obj in objects where superClassOf obj == helper do 
+			(
+				-- Get NMDPrimitiveCustomAttribute definition
+				getCADefs = custAttributes.getDefs obj
+				for defs in getCADefs do
+				(
+					-- If it has NMDPrimitiveCustomAttribute definition do the operation else skip the rest.
+					if defs != undefined and defs.name == #NMDPrimitiveCustomAttribute do
+					(
+						-- Get the number of geometries in each helper
+						if obj.children.count > 0 then
+						(
+							lodObject = #()
+							-- If the geometries have "LOD" string, then get the index of each lods and append to lodObject array
+							for each in obj.children where (findString each.name "LOD") != undefined do
+							(
+								appendIfUnique lodObject (substituteString ((filterString each.name "_")[(filterString each.name "_").count]) "LOD" "" as integer) 
+							)
+							-- foreach helper get the highest lod index
+							-- ccol_mesh properties is 1-based.
+							-- ccol_mesh :: L0 = 1 , L1 = 2 and so on.
+							-- amax function returns the highest element in an array.
+							if (amax lodObject) != undefined do
+							(
+								-- if it is more than or equal to LOD4, set the Complex Collision Mesh to LOD4
+								if (amax lodObject) >= 4 then
+								(
+									obj.ccol_mesh = 5
+									format "Complex Collision L% --> %\n" (obj.ccol_mesh-1) obj.name 
+								)
+								-- else set the Complex Collision Mesh to whichever lod index is higher
+								else
+								(
+									obj.ccol_mesh = (amax lodObject)+1
+									format "Complex Collision L% --> %\n" (obj.ccol_mesh-1) obj.name 
+								)
+							)
+						)			
+					)
+				)	
+			)
+		)
+		fn SetNomadAttributes sourceObj targetObj lodIndx = 
+		(
+			--Verify if the object has only Nomad Attributes
+			if (custAttributes.count targetObj) > 0 then
+			(
+				for custIndx = 1 to (custAttributes.count targetObj) do
+				(
+					custAttributes.Delete targetObj custIndx
+				)
+				AddNMDObjAttributes targetObj
+			)			
+			
+			--User Properties
+			setUserPropBuffer targetObj ""
+			setUserPropBuffer targetObj (getUserPropBuffer sourceObj)			
+			
+			--Parent
+			if targetObj.parent != sourceObj.parent do
+			(
+				targetObj.parent = sourceObj.parent
+				format "Fixing Linking : % --> %\n" sourceObj.parent.name targetObj.name 
+			)	
+			
+			if (custAttributes.count targetObj) == 1 then
+			(
+				getNomadAttribute = custAttributes.get targetObj 1
+				if getNomadAttribute.name == "NMDObjectCustomAttribute" do
+				(									
+					if (findString targetObj.name (lodIndx[lodIndx.count])) != undefined do
+					(
+						if targetObj.export_tag != lodIndx do 
+						(
+							targetObj.export_tag = lodIndx
+							format "LOD Tag : % --> %\n" lodIndx targetObj.name 
+						)							
+					)				
+				)				
+			)
+			else
+			(
+				AddNMDObjAttributes targetObj
+				NMDSetChildTag targetObj
+				format "Adding Nomad Properties : %\n" targetObj.name		
+				--LOD Definition
+				targetObj.export_tag = lodIndx
+				format "LOD Tag : % --> %\n" lodIndx targetObj.name 
+				format "\n"
+			)
+		)
+		
+		fn CopyLod obj = 
+		(
+			local nextLOD = (obj.name[obj.name.count] as integer) + 1
+			if nextLOD <= 6 then 
+			(
+				newLOD = replace obj.name obj.name.count 1 (nextLOD as string)
+				if (getNodeByName newLOD) == undefined and newLOD != "" then
+				(
+					maxOps.cloneNodes obj cloneType:#copy newNodes:&cObj
+					newObj = cObj[1]
+					newObj.name = newLOD
+					format "% : Copied to Next LOD\n" newObj.name
+					SetNomadAttributes (getNodeByName (replace newLOD newLOD.count 1 "0")) newObj ("LOD" + nextLOD as string)
+					format "\n"
+				)
+				else
+				(
+					format "% : Already Exist in the Scene\n" newLOD
+				)
+			)
+			else
+			(
+				format "% : Max LOD Limit Reached\n" obj.name
+			)
+			
+		)
+		
+		on btnExportFix Click e do
+		(
+			max create mode
+			clearListener()
+			actionMan.executeAction 0 "40472"
+			with redraw off
+			(
+				format "----------------------------------------\n"
+				format "Closing EVE Editor\n"
+				format "----------------------------------------\n"
+				try(eveForm.Close())catch(format "EVE Editor Exception : %\n" (getCurrentException()))					
+				for indx = 1 to tetraLODIndex.count do
+				(		
+					format "----------------------------------------\n"
+					format "Nomad Attributes for LOD%\n" indx
+					format "----------------------------------------\n"
+					for obj in execute("$*_"+tetraLODIndex[indx]) do
+					(
+						if (getNodeByName (replace obj.name obj.name.count 1 "0")) != undefined then
+						(
+							SetNomadAttributes (getNodeByName (replace obj.name obj.name.count 1 "0")) obj ("LOD"+indx as string)
+						)
+						else
+						(
+							format "Object : %  has no LOD00 Object\n"
+						)
+					)
+					format "\n"
+				)	
+				format "----------------------------------------\n"
+				format "Complex Collision Attributes\n"
+				format "----------------------------------------\n"
+				SetComplexCollisionProperties()	
+				format "----------------------------------------\n"
+				format "Starting EVE Editor\n"
+				format "----------------------------------------\n"
+				try(eve())catch(format "EVE Editor Exception : %\n" (getCurrentException()))
+			)
+			redrawViews()
+		)
+		on btnCopyNextLOD Click e do
+		(
+			max create mode
+			clearListener()
+			for obj in selection do CopyLod obj
+		)
+		on DHR_TetraToolBox_LOD open do
+		(
+			btnExportFix.Text = "ReWire Nomad Properties"
+			btnCopyNextLOD.Text = "Copy Objects to Next LOD"
+			DotnetButtonLayout btnExportFix alignment:"center"
+			DotnetButtonLayout btnCopyNextLOD alignment:"center"
+		)
+		on DHR_TetraToolBox_LOD rolledUp bState do
+		(
+			if (bState == true) then
+			(
+				DHR_TetraToolBox.height += DHR_TetraToolBox_LOD.height
+				print DHR_TetraToolBox.height
+			)
+			else
+			(
+				DHR_TetraToolBox.height -= DHR_TetraToolBox_LOD.height
+			)
+		)
 	)	
 	rollout DHR_TetraToolBox_Update "About" rolledup:true
 	(		
@@ -430,6 +651,7 @@ rollout DHR_TetraToolBox ("TeTRA Toolbox v"+DHR_toolVersion as string) width:162
 		addSubRollout DHR_TetraToolBox_SubRollout DHR_TetraToolBox_Mesh
 		addSubRollout DHR_TetraToolBox_SubRollout DHR_TetraToolBox_Pivot
 		addSubRollout DHR_TetraToolBox_SubRollout DHR_TetraToolBox_MaterialUV
+		addSubRollout DHR_TetraToolBox_SubRollout DHR_TetraToolBox_LOD
 		addSubRollout DHR_TetraToolBox_SubRollout DHR_TetraToolBox_Update
 	)
 )
@@ -439,5 +661,5 @@ if DHR_maxVersion[1] > 18000 then
 )
 else
 (
-	createDialog DHR_TetraToolBox width:DHR_tetraToolBoxMaxWindowSize.x height:402
+	createDialog DHR_TetraToolBox width:DHR_tetraToolBoxMaxWindowSize.x height:448
 )
